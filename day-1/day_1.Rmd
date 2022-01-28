@@ -1,0 +1,434 @@
+---
+title: "R Text Analysis: Part 1"
+theme: readable
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    fig_width: 12
+    fig_height: 7
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Welcome to Text Analysis with R, Part 1! 
+
+The following materials are a companion workshop to the Python Text Analysis. The materials in this workshop borrow heavily from Juila Silge and David Robinson's book, [Text Mining with R](https://www.tidytextmining.com/). If material from the lessons interest you, we strongly recommend checking out the book in depth. 
+
+There are differences in how R approaches text as data. R and tidyverse conventions can apply strengths in data wrangling quite well in the realm of text, and we'll see some of that in the following lessons. This workshop also leverages the strengths of ggplot to visualize text as data, making an emphasis on inductive and exploratory approaches to text rather than prediction alone. It should be mentioned that the outputs of text analysis methods can be qualitative, and require a level of interepretation and understanding that is unique to the data being explored. 
+
+And with that... *lettuce begin!* 
+![](../images/lettuce-1.png)
+
+
+```{r, message = F}
+
+# we start by loading packages 
+if (!require("pacman")) install.packages("pacman")
+
+# package management 
+library(pacman)
+
+pacman::p_load(
+  tidyverse, here, fs, # data management, wrangling
+  jsonlite, textreadr, xml2, fs, # importing file formats
+  tidytext) # text analysis
+
+# options
+options(scipen = 999)
+
+```
+
+### Preprocessing
+
+Like other data types, text rarely ever arrives in our environment as clean, organized data. Most of our analyses and modeling methods only accept data structured in a particular way, and as such, text data poses unique preprocessing challenges. 
+
+In lesson 1 we cover core preprocessing approaches to the text data we expand on in our next two lesson Today we focus on preprocessing text, and cover the following concepts:
+
+
+* Reading in files
+* Removing punctuation
+* Stripping whitespace
+* Text normalization
+* Tokenization
+* Stop words
+
+>The first step is to read in the files containing the data.  The most common file types for text data are: `.txt`, `.csv`, `.json`, `.html` and `.xml`.
+
+#### Reading in `.txt` files
+
+The `readr` package is a good way to import `.txt` files, and is included in the `tidyverse` library we currently have loaded. The [`read_lines`](https://readr.tidyverse.org/reference/read_lines.html) function imports a `.txt` file as a series of _lines_,
+
+* What type of object is `raw_text`?
+* How many lines are in `raw_text`?
+* Is there a simple way to get the first 20 lines of `raw_text`? 
+
+
+```{r}
+# use tidyvers readr functions to read in a .txt file.
+raw_text <- read_lines(here("day-1/data/sowing-and-reaping.txt"))
+
+# print the first few lines 
+raw_text[1:25] 
+```
+
+
+#### Reading in `.csv`
+
+Text may also be nested in a column of tabular data. We may be more familiar with importing data from `.csv` files. We can do this via a `readr` function as well. 
+
+* What class is the `tweets`?
+* How can we get the text of the first question?
+* How can we get a list of the texts of all questions?
+
+```{r, message=F, warning=F}
+
+# read in a .csv
+tweets <- read_csv(here("day-1/data/smile-annotations-final.csv"))
+
+# select the tweet_text column
+tweets %>% 
+  select(tweet_text) %>%
+  head()
+
+```
+
+#### Reading in JSON files. 
+
+ JSON is a file format that stores data structures and objects in JavaScript Object Notation (JSON) format, which is a standard data interchange format. It is primarily used for transmitting data between a web application and a server. 
+
+We must implement a package to import json into an R environment, in this case we use. `jsonlite`. 
+ 
+ 
+```{r}
+
+library(jsonlite)
+
+data_json <-fromJSON(here("day-1/data/fires.json"))
+  
+data_json %>% 
+  select(Location) %>%
+  head()
+
+
+```
+
+
+
+#### Reading in `.html` files
+
+There are many ways R is able to interface with html. One way to read in `.html` files as text is through the `textreadr` package.
+
+
+```{r}
+
+library(textreadr)
+
+time_html <- textreadr::read_html(here("day-1/data/time.html")) %>% 
+  read_lines()
+
+time_html[1:10]
+```
+
+#### Reading in `.xml` files, 
+
+Extensible Markup Language (XML) is a markup language and file format for storing, transmitting, and reconstructing arbitrary data on the internet. It defines a set of rules for encoding documents in a format that is both human-readable and machine-readable.
+
+One way to import `.xml` files as text in R is to the use the `xml2` package. 
+
+
+```{r}
+
+library(xml2)
+
+text_xml <- read_xml(here("day-1/data/books.xml")) %>% 
+  # convert to text format
+              xml_text() %>% 
+  # convert to lines 
+              read_lines()
+
+text_xml[1:10]
+
+```
+
+#### Reading in multiple files
+
+Sometimes the text we want to work with is split across multiple files in a folder. We want to be able to read them all into a single variable.
+
+* What type is harper?
+* What type is fnames after it is first assigned a value?
+* What type is fnames after it is assigned a second value?
+  
+
+
+```{r}
+# list all files in the harper folder
+file_paths <- list.files("data/harper/", 
+                         pattern = "txt", 
+                        full.names = T, recursive = T)
+
+# create an empty list object 
+harper <- list()
+
+# for loop function to import all text 
+for (i in seq_along(file_paths)){
+  
+  harper[[i]] <- readr::read_file(
+    file_paths[[i]] 
+  ) 
+}
+
+# format harper object as lines
+harper_lines <- harper %>% 
+  unlist() %>% 
+  read_lines() 
+
+# print first lines of harper texts 
+harper_lines %>% head(10)
+
+```
+
+
+### Tokenization
+
+Once we've read in the data, our next step is often to split it into words. This step is referred to as tokenization. We call it tokenization  because each occurrence of a word becomes a "token", and each distinct word used is called a word "type". So the word type "the" may correspond to multiple tokens of "the" in a text. One approach to tokenizing text is through `tidytext`'s `unnest_tokens()` function. 
+
+
+```{r}
+
+library(tidytext)
+
+# restructure harper text as a tibble, rename column
+harper_tokens <- harper_lines %>% 
+  tibble() %>% 
+  rename(text = ".") %>% 
+# create tokens from text column
+  unnest_tokens(word, text)
+
+# let us count the word types
+harper_tokens %>% 
+  group_by(word) %>% 
+    count(sort = T)
+
+
+```
+
+
+#### Removing punctuation
+
+Sometimes (although admittedly less frequently than tokenizing and sentence segmentation), you might want to keep only the alphanumeric characters (i.e. the letters and numbers) and ditch the punctuation. We can do that With a little help from the `stringr` set of functions, which are rolled into the `tidyverse` library we have installed.
+
+```{r}
+
+tokens_no_punct <- harper_tokens %>% 
+  mutate(word = str_replace_all(word, "[[:punct:]]", " "))
+
+tokens_no_punct %>% head(15) 
+
+```
+
+#### Strip whitespace
+
+This is an extremely common step, and simple to perform with the `str_squish()` function. 
+
+
+```{r}
+
+tokens_no_punct_or_ws <- harper_tokens %>% 
+  mutate(word = str_replace_all(word, "[[:punct:]]", " "),
+         word = str_squish(word)) 
+  
+
+tokens_no_punct_or_ws %>% head(15)
+
+```
+
+
+#### Text normalization
+
+Text normalization means making our text fit some standard patterns. Lots of approaches to preprocessing text data come under this wide umbrella, but the most common are:
+
+* case folding
+* removing URLs, digits, hashtags
+* OOV (removing infequent, _Out Of Vocabulary_ words)
+
+#### Case folding:
+
+Case folding means dealing with upper and lower cases characters. This is usually done by making all characters lower cased. A package called `stringr`, also included in tidyverse, has a host of functions to operate on character data, or "strings". One of these functions is `str_to_lower()`. Take a look at the [stringr cheat sheet](https://raw.githubusercontent.com/rstudio/cheatsheets/main/strings.pdf) for more information. 
+
+
+```{r}
+
+case_fold <- read_lines("data/example4.txt") %>% tibble() %>% 
+   rename(text = ".") 
+
+case_fold
+
+```
+
+
+```{r}
+
+case_fold %>% 
+  mutate(text = str_to_lower(text))
+
+```
+
+
+#### Removing URLs, digits and hashtags
+
+We rarely care about the exact URL used in a tweet, or the exact number. We could, and often just remove them completely. It can be informative at times to know  there is a URL or a digit in the text. So we want to replace individual URLs asnd digits with a symbol that preserves the fact that a URL was there. It's standard to just use the strings "URL" and "DIGIT".
+
+
+```{r}
+
+at_pattern <- "@(\\w+)"
+at_sign <- " AT "
+
+url_pattern <- "https?:\\/\\/.*[\r\n]*"
+url_sign <- " URL "
+
+hashtag_pattern <- "(?:^|\\s)[＃#]{1}(\\w+)"
+hashtag_sign <- " HASHTAG "
+
+digit_pattern <- '\\d+'
+digit_sign <- ' DIGIT '
+
+```
+
+### Regular Expressions
+
+What are those `patterns` up there, anyway? Those patterns, are what's known as [regular expressions](https://stringr.tidyverse.org/articles/regular-expressions.html). A regular expression is a sequence of characters that specifies a search pattern in text. Usually such patterns are used by string-searching algorithms for "find" or "find and replace" operations on strings, or for input validation. They can seem a little much at first glance, but become more intuitive with practice. 
+
+
+A great resource to practice regular expressions is [regex101.com](https://regex101.com/)
+
+[Regular Expressions Tester](https://spannbaueradam.shinyapps.io/r_regex_tester/) is another quick way to test your Regex patterns in practice. 
+
+Here is [the Wikipedia entry](https://en.wikipedia.org/wiki/Regular_expression) to learn more about the history of Regular Expressions, or *Regex*. 
+
+As you'll see, regular expressions can be put to powerfull use when operating on text data. 
+
+```{r}
+
+# select our tweet_text
+tweets %>% select(tweet_text) %>% 
+  # replace all instances of the regex pattern with a sign showing where the pattern was. 
+  mutate(tweet_text = str_replace_all(tweet_text, at_pattern, at_sign),
+         tweet_text = str_replace_all(tweet_text, url_pattern, url_sign),
+         tweet_text = str_replace_all(tweet_text, 
+                                      hashtag_pattern,hashtag_sign))
+
+```
+
+
+#### OOV words
+
+Sometimes it's best for us to remove infrequent words (sometimes *not!*). When we do remove infrequent words, it's often for a predictive method (like classification) that's sensitive to rare words.
+
+
+```{r}
+
+
+tweet_tokens <- tweets %>% 
+  # select our text data
+  select(tweet_text) %>% 
+  # tokenize
+  unnest_tokens(tokens, tweet_text) %>% 
+  # replace regex patterns, this time leaving blank
+  mutate(tokens = str_replace_all(tokens, url_pattern, " "),
+         tokens = str_replace_all(tokens, hashtag_pattern, " "),
+          tokens = str_replace_all(tokens, at_pattern, " "),
+         tokens = str_replace_all(tokens, digit_pattern, " "),
+         tokens = str_replace_all(tokens, "[[:punct:]]", " "),
+         tokens = str_squish(tokens)) %>% 
+  # filter out empty lines
+   filter(tokens != "") %>% 
+  # group by unique tokens
+  group_by(tokens) %>% 
+  # add count variable and filter the one-off words out.
+  add_count(sort = TRUE) %>% 
+  filter(n != 1) 
+ 
+  
+
+tweet_tokens %>% 
+  group_by(tokens) %>% 
+  summarise(n_tokens = n()) %>% 
+  arrange(n_tokens)
+
+
+```
+
+It looks like we still have some strange looking token objects in our data, but all the one-off words are removed. 
+
+### Removing stop words
+
+You may have noticed that the most common words in our data above aren't terribly exciting. They're words like "am", "i", "the" and "a": stop words. These are rarely useful to us in computational text analysis, so it's very common to remove them completely.
+
+Many of these words will at first glance pass the “non-informational” test. They don't say mich on their own. That's true, but if you look at these word in relation to others around them, the more you realize that many of these word have meaning in certain contexts. 
+
+
+```{r}
+
+tidytext::stop_words
+
+```
+
+* What other stop words do you think there are?
+* How can we add stop words unique to our data? 
+
+We often encounter unique stop words, and appending our stop word dictionary is a fairly simple process to do. 
+
+
+```{r}
+
+custom_stop_words <- 
+  # bind a concatenated list of stop words to the dictionary like so. 
+  bind_rows(tibble(word = c("https", "http", "t co", "rt", "amp"),  
+                   lexicon = c("custom")), 
+                   stop_words)
+
+```
+
+Removeing stop words from our tokens in done via the join function, in this case `anti_join()` is used to remove all tokens that exist in the stop word dictionary we just updated. 
+
+
+```{r}
+
+tweet_tokens_with_stop_words <- tweet_tokens %>% 
+  # rename the token variable name to match dictionary
+  rename(word = tokens) %>% 
+  # anti_join tokens with dictionary.
+  anti_join(custom_stop_words, by = "word")
+
+
+tweet_tokens_with_stop_words %>% 
+  group_by(word) %>% 
+  summarise(n_tokens = n()) %>% 
+  arrange(desc(n_tokens))
+
+```
+
+
+
+
+```{r}
+
+
+
+```
+
+
+Things we didn't cover in this session:
+
+* Named entity recognition
+* Syntactic parsing
+* Information extraction
+* Removing markup from HTML
+* Extracting numerical features
+* SpaCy
+
+

@@ -1,0 +1,296 @@
+---
+title: "R Text Analysis - day 3 (word embedding sup)"
+theme: readable
+output:
+  html_document: 
+    number_sections: yes
+    toc: yes
+    toc_float: yes
+    fig_width: 12
+    fig_height: 7
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+https://cbail.github.io/textasdata/word2vec/rmarkdown/word2vec.html
+https://programminghistorian.org/en/lessons/basic-text-processing-in-r
+https://smltar.com/tokenization.html
+
+
+
+```{r}
+library(tidyverse)
+library(tidytext)
+library(widyr)
+library(quanteda)
+library(tokenizers)
+library(irlba)
+
+options(scipen = 999)
+
+
+
+```
+
+
+```{r}
+
+music_rev_df <- read_delim("data/music_reviews.csv", delim = "\t")
+
+```
+
+
+```{r}
+
+at_pattern <- "@(\\w+)"
+url_pattern <- "https?:\\/\\/.*[\r\n]*"
+hashtag_pattern <- "(?:^|\\s)[＃#]{1}(\\w+)"
+digit_pattern <- '\\d+'
+punctuation_pattern <-  "[[:punct:]]" 
+
+
+
+```
+
+```{r}
+
+
+custom_stop_words <- 
+  bind_rows(tibble(word = c("amp", "le"),  
+                   lexicon = c("custom")), 
+                   stop_words)
+
+
+music_df <- music_rev_df %>% 
+  select(body, genre) %>% 
+  mutate(body = str_remove_all(body, digit_pattern),
+         body = str_remove_all(body, punctuation_pattern),
+         body = str_to_lower(body)) %>% 
+  rowid_to_column()
+
+```
+
+
+```{r}
+
+#create context window with length 8
+tidy_skipgrams <- music_df %>%
+    unnest_tokens(ngram, body, token = "ngrams", n = 8) %>%
+    mutate(ngram_id = row_number()) %>% 
+    tidyr::unite(skipgram_id, rowid, ngram_id) %>%
+    unnest_tokens(word, ngram) %>% 
+    anti_join(custom_stop_words) %>% 
+  na.omit()
+
+  
+tidy_skipgrams
+```
+
+```{r}
+
+#calculate unigram probabilities (used to normalize skipgram probabilities later)
+unigram_probs <- music_df %>%
+    unnest_tokens(word, body) %>%
+   anti_join(custom_stop_words) %>% 
+    count(word, sort = TRUE) %>%
+    mutate(p = n / sum(n))
+
+unigram_probs
+```
+
+
+```{r, warning=FALSE}
+
+#calculate probabilities
+skipgram_probs <- tidy_skipgrams %>%
+    pairwise_count(word, skipgram_id, diag = TRUE, sort = TRUE) %>%
+  na.omit() %>% 
+    mutate(p = n / sum(n))
+
+skipgram_probs
+```
+
+
+```{r}
+
+#normalize probabilities
+normalized_prob <- skipgram_probs %>%
+    filter(n > 20) %>%
+    rename(word1 = item1, word2 = item2) %>%
+    left_join(unigram_probs %>%
+                  select(word1 = word, p1 = p),
+              by = "word1") %>%
+    left_join(unigram_probs %>%
+                  select(word2 = word, p2 = p),
+              by = "word2") %>%
+    mutate(p_together = p / p1 / p2)
+
+normalized_prob 
+
+
+```
+
+
+```{r}
+
+normalized_prob %>% 
+    filter(word1 == "album") %>%
+    arrange(-p_together)
+
+
+```
+
+
+```{r}
+
+pmi_matrix <- normalized_prob %>%
+    mutate(pmi = log10(p_together)) %>%
+    cast_sparse(word1, word2, pmi)
+
+library(irlba)
+
+
+
+
+```
+
+
+
+```{r}
+
+#remove missing data
+pmi_matrix@x[is.na(pmi_matrix@x)] <- 0
+#run SVD
+pmi_svd <- irlba(pmi_matrix, 256, maxit = 500)
+#next we output the word vectors:
+word_vectors <- pmi_svd$u
+rownames(word_vectors) <- rownames(pmi_matrix)
+
+```
+
+
+
+```{r}
+
+library(broom)
+
+search_synonyms <- function(word_vectors, selected_vector) {
+
+    similarities <- word_vectors %*% selected_vector %>%
+        tidy() %>%
+        as_tibble() %>%
+        rename(token = .rownames,
+               similarity = unrowname.x.)
+
+    similarities %>%
+        arrange(-similarity)    
+}
+
+
+
+```
+
+
+
+```{r}
+
+pres_synonym <- search_synonyms(word_vectors,word_vectors["album",])
+pres_synonym
+```
+
+
+
+```{r}
+
+pmi_svd <- irlba(pmi_matrix, 2, maxit = 500)
+
+#next we output the word vectors:
+word_vectors <- pmi_svd$u
+rownames(word_vectors) <- rownames(pmi_matrix)
+
+#grab 100 words
+forplot<-as.data.frame(word_vectors[100:200,])
+forplot$word<-rownames(forplot)
+
+```
+
+```{r}
+
+genre <- music_rev_df %>% 
+  group_by()
+
+
+```
+
+
+
+```{r}
+#now plot
+
+ggplot(forplot, aes(x=V1, y=V2, label=word))+
+  geom_text(aes(label=word), 
+            #check_overlap = T, 
+            hjust=1, vjust=1, 
+            color="blue", alpha = .5)+
+  theme_minimal()+
+  xlab("First Dimension Created by SVD")+
+  ylab("Second Dimension Created by SVD")
+
+```
+
+
+```{r}
+
+
+
+```
+
+
+```{r}
+
+
+
+```
+
+
+```{r}
+
+
+
+```
+
+
+```{r}
+
+
+
+```
+
+
+```{r}
+
+
+
+```
+
+
+```{r}
+
+
+
+```
+
+```{r}
+
+
+
+```
+
+
+```{r}
+
+
+
+```

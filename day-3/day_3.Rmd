@@ -1,0 +1,329 @@
+---
+title: "R Text Analysis - day 2"
+theme: readable
+output:
+  html_document: 
+    number_sections: yes
+    toc: yes
+    toc_float: yes
+    fig_width: 12
+    fig_height: 7
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+
+library(tidyverse)
+library(tidytext)
+library(tidymodels)
+
+
+options(scipen = 999)
+```
+
+
+
+What is sentiment analysis?
+
+In this notebook, we're going to perform sentiment analysis on a dataset of tweets about US airlines. Sentiment analysis is the task of extracting affective states from text. Sentiment analysis is most ofen used to answer questions like:
+
+* what do our customers think of us?
+* do our users like the look of our product?
+* what aspects of our service are users dissatisfied with?
+
+Dataset
+
+The dataset was collected by Crowdflower, which they then made public through Kaggle. I've downloaded it for you and put it in the "data" directory. Note that this is a nice clean dataset; not the norm in real-life data science! I've chosen this dataset so that we can concentrate on understanding what text classification is and how to do it.
+
+
+```{r, warning=F}
+
+airline_tweets <- read_csv("data/tweets.csv")
+
+
+```
+
+Which airlines are tweeted about and how many of each in this dataset?
+
+
+```{r}
+
+airline_tweets %>% 
+  group_by(airline) %>% 
+  count(sort = T)
+  
+
+```
+
+Challenge
+
+* How many tweets are in the dataset?
+* How many tweets are positive, neutral and negative?
+* What proportion of tweets are positive, neutral and negative?
+* Visualize these last two questions.
+
+```{r}
+
+
+
+```
+
+
+Extra challenge
+
+* When did the tweets come from?
+* Who gets more retweets: positive, negative or neutral tweets?
+* What are the reasons why people tweet negatively? Show distribution.
+
+there are a variety of methods and dictionaries that exist for evaluating the opinion or emotion in text. The tidytext package provides access to several sentiment lexicons. Three general-purpose lexicons are
+
+* AFINN from Finn Årup Nielsen,
+* bing from Bing Liu and collaborators, and
+* nrc from Saif Mohammad and Peter Turney.
+
+All three of these lexicons are based on unigrams, i.e., single words. These lexicons contain many English words and the words are assigned scores for positive/negative sentiment, and also possibly emotions like joy, anger, sadness, and so forth. The nrc lexicon categorizes words in a binary fashion (“yes”/“no”) into categories of positive, negative, anger, anticipation, disgust, fear, joy, sadness, surprise, and trust. The bing lexicon categorizes words in a binary fashion into positive and negative categories. The AFINN lexicon assigns words with a score that runs between -5 and 5, with negative scores indicating negative sentiment and positive scores indicating positive sentiment.
+
+We can access these sentiment dictionaries via `tidytext`'s  `get_sentiment()` function.
+
+
+```{r}
+
+get_sentiments("afinn")
+
+```
+
+
+```{r}
+get_sentiments("bing")
+
+```
+
+
+```{r}
+get_sentiments("nrc")
+```
+
+With data in a tidy format, sentiment analysis can be done with an `inner_join()`. This is another of the great successes of viewing text mining as a tidy data analysis task; much as removing stop words wtih `anti_join()`.
+
+```{r}
+
+twitter_handle_pattern <-  "@(\\w+)"
+url_pattern <- "https?:\\/\\/.*[\r\n]*"
+hashtag_pattern <- "(?:^|\\s)[＃#]{1}(\\w+)"
+digit_pattern <- "\\d+"
+
+time_of_day_pattern <- "(\\d+:\\d+:\\d+.-\\d+)"
+
+
+```
+
+
+```{r}
+
+at_df_clean <- airline_tweets %>% 
+  mutate(text = str_remove_all(text, twitter_handle_pattern),
+         text = str_remove_all(text, url_pattern),
+         text = str_remove_all(text, hashtag_pattern),
+         text = str_remove_all(text, digit_pattern),
+         text = str_remove_all(text, "[[:punct:]]"), 
+         tweet_created = str_remove_all(tweet_created, time_of_day_pattern),
+         tweet_created = as.Date(tweet_created))
+
+at_df_clean %>% select(text)
+```
+
+
+```{r, message=F}
+
+
+at_df_tokens <- at_df_clean %>% 
+  unnest_tokens(word, text) %>% 
+  inner_join(get_sentiments("afinn"), by = "word") %>% 
+  group_by(tweet_created, airline) %>% 
+  summarise(sentiment = sum(value)) 
+  
+at_df_tokens
+```
+
+
+```{r}
+
+ggplot(at_df_tokens, aes(tweet_created, sentiment, fill = airline)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~airline, ncol = 2, scales = "free_x")
+
+```
+
+```{r}
+
+```
+
+
+
+
+
+## Classification
+### Logistic regression with binary class
+
+To understand the theoretical gist of our classification task, let's first focus on a binary 'positive vs negative' classifier. We are going to do so by restricting the analysis to the non-neutral tweets.
+
+
+```{r}
+
+at_classify <- airline_tweets %>% 
+  filter(airline_sentiment != "neutral")
+
+```
+
+```{r}
+
+at_classify %>% 
+ggplot(aes(airline_sentiment, fill = airline_sentiment)) +
+  geom_bar(alpha = .7, show.legend = FALSE) +
+  coord_flip() +
+  theme_minimal() +
+  theme() +
+  labs(x = NULL,
+       y = "Count",
+       title = "Number of postive or negative tweets per airline")
+
+
+```
+
+There's a severe class imbalance here. But let's continue anyways... 
+
+# Bag of words and DTM
+
+First, we need to turn the text into numbers for our classifier. We're going to use a "bag of words" as our features. A bag of words is just like a frequency count of all the words that appear in a tweet. It's called a bag because we ignore the order of the words; we just care about what words are in the tweet. To do this, we can use the `cast_dtm()` function from day 2, after we've done a little preprocessing, of course.
+
+
+```{r}
+
+at_classify_clean <- at_classify %>% 
+  select(text, airline_sentiment) %>% 
+  mutate(text = str_remove_all(text, twitter_handle_pattern),
+         text = str_remove_all(text, url_pattern),
+         text = str_remove_all(text, hashtag_pattern),
+          text = str_remove_all(text, digit_pattern),
+          text = str_remove_all(text, "[[:punct:]]")) 
+
+at_classify_clean %>% select(text)
+
+```
+
+
+
+
+
+
+
+```{r}
+
+set.seed(94706)
+
+at_split <- initial_split(at_classify_clean, 
+                          strata = "airline_sentiment")
+
+train_data <- training(at_split)
+test_data <- testing(at_split)
+
+```
+
+
+https://www.emilhvitfeldt.com/post/2018-12-29-text-classification-with-tidymodels/
+
+
+```{r}
+
+library(textrecipes)
+
+```
+
+```{r}
+
+at_rec <- recipe(airline_sentiment ~., data = train_data) %>% 
+  step_filter(text != "") %>% 
+  step_tokenize(text) %>% 
+  step_tokenfilter(text, min_times = 11) %>% 
+  step_tf(text) %>% 
+  prep(training = train_data)
+
+at_rec
+
+```
+
+
+```{r}
+
+at_train_data <- juice(at_rec)
+at_test_data <- bake(at_rec, test_data)
+
+str(at_train_data, list.len = 10)
+
+```
+
+https://juliasilge.com/blog/palmer-penguins/
+
+
+```{r}
+
+
+glm_model <- logistic_reg() %>%
+  set_engine("glm")
+glm_model
+
+
+```
+
+```{r}
+
+at_model <- glm_model %>%
+  fit(airline_sentiment ~ ., data = at_train_data)
+```
+
+
+
+
+```{r}
+
+eval_tibble <- at_test_data %>%
+  select(airline_sentiment) %>%
+  mutate(
+    class_at = parsnip:::predict_class(at_model, at_test_data), 
+    prop_at = parsnip:::predict_classprob(at_model, at_test_data)) 
+
+accuracy(eval_tibble, truth = airline_sentiment, estimate = class_at)
+
+
+```
+
+Not perfect predictive power, but pretty close to 90% considering the class balance issue between positive and negative tweets we encountered our dataset. The takeaway here is how we were able to pivot our "text as tokens" into a term matrix that became features for our model to predict from. Let's take a look at those features and see which ones effected our model most heavily. 
+
+```{r}
+
+at_model$fit %>% 
+  tidy() %>%
+  mutate(term = str_replace(term, "tf_text_", "")) %>%
+  group_by(estimate > 0) %>%
+  top_n(10, abs(estimate)) %>%
+  ungroup() %>%
+  
+  ggplot(aes(fct_reorder(term, estimate), estimate, fill = estimate > 0)) +
+  geom_col(alpha = 0.7, show.legend = FALSE) +
+  coord_flip() +
+  theme_minimal() +
+  labs(x = NULL,
+  title = "Coefficients that increase/decrease probability the most",
+  subtitle = "Stopwords not removed")
+
+```
+
+Because of how we transformed the __words__ of tweets into __features__ of our classification model, maybe it was better to keep the stop words in for context? I'll leave that question to you, and strongly recommend exploring R Tidymodels workshop for how to find more advanced approaches to Machine Learning methods to tune up your predictions better. 
+
+
+

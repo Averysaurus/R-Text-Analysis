@@ -1,0 +1,174 @@
+---
+title: "R Text Analysis - day 3 (word embedding sup)"
+theme: readable
+output:
+  html_document: 
+    number_sections: yes
+    toc: yes
+    toc_float: yes
+    fig_width: 12
+    fig_height: 7
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+https://cbail.github.io/textasdata/word2vec/rmarkdown/word2vec.html
+https://programminghistorian.org/en/lessons/basic-text-processing-in-r
+
+
+
+```{r}
+library(tidyverse)
+library(tidytext)
+library(widyr)
+library(quanteda)
+library(tokenizers)
+
+
+
+```
+
+
+```{r}
+
+list_file <- list.files("data/austen", pattern = "txt", 
+                        full.names = T, recursive = T)
+
+austen <- list()
+
+for (i in seq_along(list_file)){
+  austen[[i]] <- readr::read_file(
+    list_file[[i]]
+  )
+}
+
+
+```
+
+
+```{r}
+
+sentence_pattern <- '[.?!]'
+punctuation_pattern <- '[[:punct:]]'
+
+austen_sent <- austen[1114:]
+
+austen_sent <- austen %>% 
+        str_replace_all("Mrs.", "Mrs") %>% 
+        str_replace_all("Mr.", "Mr") %>% 
+        str_replace_all("\n", " ") %>% 
+        str_replace_all("\r", " ") %>% 
+        str_split(sentence_pattern) %>% 
+  
+        str_remove_all(punctuation_pattern) %>% 
+  str_to_lower()
+  
+  
+
+```
+
+```{r}
+austen_lines <- unlist(austen) %>%
+  read_lines() %>% 
+  enframe() %>% slice(-(1:45)) %>% 
+  select(-name) %>% 
+  filter(value != "") %>% 
+  rename(text = value)
+  
+
+tidy_skipgrams <- austen_lines %>%
+    unnest_tokens(ngram, text, token = "ngrams", n = 8) %>%
+    mutate(ngramID = row_number()) %>% 
+    #tidyr::unite(skipgramID, postID, ngramID) %>%
+    unnest_tokens(word, ngram)
+
+
+#calculate unigram probabilities (used to normalize skipgram probabilities later)
+unigram_probs <- austen_lines %>%
+    unnest_tokens(word, text) %>%
+    count(word, sort = TRUE) %>%
+    mutate(p = n / sum(n))
+
+```
+
+
+```{r}
+
+#calculate probabilities
+skipgram_probs <- tidy_skipgrams %>%
+    pairwise_count(word, skipgramID, diag = TRUE, sort = TRUE) %>%
+    mutate(p = n / sum(n))
+
+#normalize probabilities
+normalized_prob <- skipgram_probs %>%
+    filter(n > 20) %>%
+    rename(word1 = item1, word2 = item2) %>%
+    left_join(unigram_probs %>%
+                  select(word1 = word, p1 = p),
+              by = "word1") %>%
+    left_join(unigram_probs %>%
+                  select(word2 = word, p2 = p),
+              by = "word2") %>%
+    mutate(p_together = p / p1 / p2)
+
+
+
+```
+
+
+```{r}
+
+austen_lines <- unlist(austen) %>% 
+  as.data.frame() %>% 
+  rename(text = ".") %>% 
+  filter(text != "")
+
+
+```
+
+
+```{r}
+
+austen_lines_clean <- austen_lines %>% 
+  mutate(text = str_replace_all(text, "Mrs.", "Mrs"),
+         text = str_replace_all(text, "Mr.", "Mr"),
+         text = str_replace_all(text, "\n", " "),
+         text = str_replace_all(text, "\r", " ")
+         )
+
+
+
+
+
+```
+
+
+
+```{r}
+
+tidy_skipgrams <- austen_lines_clean %>%
+    unnest_tokens(ngram, text, token = "ngrams", n = 8) %>%
+    mutate(ngramID = row_number()) %>% 
+    tidyr::unite(ngramID) %>%
+    unnest_tokens(word, ngram)
+
+
+```
+
+
+
+```{r}
+
+
+
+```
+
+
+
+```{r}
+
+
+
+```
