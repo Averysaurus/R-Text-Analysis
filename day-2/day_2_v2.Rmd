@@ -229,7 +229,7 @@ Reference: Blei, D. M., A. Y. Ng, and M. I. Jordan (2003). Latent Dirichlet allo
 
 ```{r}
 
-childrens_lit <- read_delim("data/childrens_lit.csv", delim = "\t") %>% 
+childrens_lit <- read_delim("data/childrens_lit.csv.bz2", delim = "\t") %>% 
   na.omit() %>% select(-X1)
 
 ```
@@ -265,8 +265,9 @@ cl_tokens
 digit_pattern <- '\\d+'
 
 cl_custom_stop_words <- 
-  bind_rows(tibble(word = c("a m", "a ve", "de", "en"), 
-                   lexicon , "em", "tom"= c("custom")), 
+  bind_rows(tibble(word = c("a m", "a ve", "de", "en", "em", "ter", 
+                            "gutenberg", "project"), 
+                   lexicon = "custom"), 
                    stop_words)
 
 ```
@@ -291,7 +292,7 @@ cl_dtm <- cl_tokens_clean %>%
   count(title, word) %>% 
   cast_dtm(title, word, n)
 
-cast_dtm
+cl_dtm
 
 ```
 
@@ -353,8 +354,9 @@ beta_wide
 ```{r}
 
 beta_wide %>% 
-ggplot(beta_wide, aes(y = fct_top_n(20, abs(log_ratio)) %>% reorder(atio),
-                      x = log_ratio)) +
+  top_n(20, abs(log_ratio)) %>% 
+      ggplot(aes(y = fct_reorder(term, log_ratio),
+                  x = log_ratio)) +
    geom_col(show.legend = FALSE) +
   labs(y = "",
        x = "log ratio of phi between topic 2 and topic 1 (base 2)")
@@ -379,6 +381,9 @@ tidy(cl_lda, matrix = "gamma") %>%
 
 With this data frame and the `comparison.cloud` function, we can explore which document is 
 more charateristic of each topic.
+
+
+
 
 
 
